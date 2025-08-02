@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 import java.io.OutputStream
 import java.util.UUID
-
+import android.util.Log
 // Classe para gerenciar conexões Bluetooth e impressão na PT-260
 class BluetoothPrinterManager(
     private val context: Context,
@@ -157,7 +157,7 @@ class BluetoothPrinterManager(
 
     // Imprime uma etiqueta com texto e código de barras
     @SuppressLint("MissingPermission")
-    fun printLabel(text: String, barcode: String? = null) {
+    /*fun printLabel(text: String, barcode: String? = null) {
         if (bluetoothSocket == null || outputStream == null) {
             callback.onError("Nenhuma conexão ativa")
             return
@@ -188,6 +188,69 @@ class BluetoothPrinterManager(
                 outputStream?.flush()
                 callback.onPrintSuccess()
             } catch (e: IOException) {
+                callback.onError("Erro ao imprimir: ${e.message}")
+                closeConnection()
+            }
+        }
+    }*/
+    fun printLabel(text: String, barcode: String? = null) {
+        if (bluetoothSocket == null || outputStream == null) {
+            callback.onError("Nenhuma conexão ativa")
+            return
+        }
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                //Log.d("BluetoothPrinter", "Inicializando impressora")
+                //outputStream?.write(byteArrayOf(0x1B, 0x40))
+                //Log.d("BluetoothPrinter", "Configurando alinhamento")
+                //outputStream?.write(byteArrayOf(0x1B, 0x61, 0x00))
+                //Log.d("BluetoothPrinter", "Enviando texto: $text")
+                //outputStream?.write(text.toByteArray(Charsets.UTF_8))
+                //outputStream?.write(byteArrayOf(0x0A))
+                /*barcode?.let {
+                    Log.d("BluetoothPrinter", "Enviando código de barras: $it")
+                    outputStream?.write(byteArrayOf(0x1D, 0x6B, 0x49, it.length.toByte()))
+                    outputStream?.write(it.toByteArray(Charsets.UTF_8))
+                    outputStream?.write(byteArrayOf(0x0A))
+                }*/
+                //Log.d("BluetoothPrinter", "Enviando comando de corte")
+                //outputStream?.write(byteArrayOf(0x1D, 0x56, 0x00))
+                //    Log.d("BluetoothPrinter", "Flushing dados")
+                /*val tsplCommand = """
+    SIZE 40 mm,30 mm
+    GAP 0 mm,0
+    CLS
+    TEXT 10,10,"3",0,1,1,"ola mundo"
+    PRINT 1
+""".trimIndent()
+
+                outputStream?.write(tsplCommand.toByteArray(Charsets.UTF_8))
+                //outputStream.flush()
+                outputStream?.flush()*/
+                val textoMultilinha = listOf(
+                    "Produto: $text.",
+                    "Data: $barcode"
+                )
+
+                val comandosTexto = textoMultilinha.mapIndexed { i, linha ->
+                    val y = 10 + (i * 30) // cada linha 30px abaixo da anterior
+                    """TEXT 10,$y,"3",0,1,1,"$linha""""
+                }.joinToString("\n")
+
+                val comandoCompleto = """
+    SIZE 40 mm,30 mm
+    BLINE 30 mm,0
+    CLS
+    $comandosTexto
+    PRINT 1
+""".trimIndent()
+
+                outputStream?.write(comandoCompleto.toByteArray(Charsets.UTF_8))
+                outputStream?.flush()
+
+                callback.onPrintSuccess()
+            } catch (e: IOException) {
+                Log.e("BluetoothPrinter", "Erro: ${e.message}")
                 callback.onError("Erro ao imprimir: ${e.message}")
                 closeConnection()
             }

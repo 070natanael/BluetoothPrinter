@@ -133,7 +133,13 @@ class MainActivity : AppCompatActivity(), BluetoothPrinterManager.PrinterCallbac
     }
 
     override fun onConnectionStateChanged(connected: Boolean, device: BluetoothDevice?) {
-        Toast.makeText(this, if (connected) "Conectado a ${device?.name}" else "Desconectado", Toast.LENGTH_SHORT).show()
+        runOnUiThread {
+            Toast.makeText(
+                this,
+                if (connected) "Conectado a ${device?.name}" else "Desconectado",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     override fun onPrintSuccess() {
