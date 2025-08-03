@@ -15,6 +15,8 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
+
 
 class MainActivity : AppCompatActivity(), BluetoothPrinterManager.PrinterCallback {
     private lateinit var bluetoothManager: BluetoothPrinterManager
@@ -64,7 +66,8 @@ class MainActivity : AppCompatActivity(), BluetoothPrinterManager.PrinterCallbac
         // Configura clique na lista de dispositivos
         devicesListView.setOnItemClickListener { _, _, position, _ ->
             val deviceAddress = deviceList[position].split("\n")[1]
-            val device = bluetoothManager.getPairedDevices()?.find { it.address == deviceAddress }
+            val device = bluetoothManager.getDiscoveredDevice(deviceAddress)
+            //val device = bluetoothManager.getPairedDevices()?.find { it.address == deviceAddress }
             device?.let { bluetoothManager.connectToDevice(it) }
         }
 
@@ -105,20 +108,54 @@ class MainActivity : AppCompatActivity(), BluetoothPrinterManager.PrinterCallbac
     }
 
     // Ativa o Bluetooth
+    private val enableBluetoothLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            Toast.makeText(this, "Bluetooth ativado com sucesso", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Bluetooth não foi ativado", Toast.LENGTH_SHORT).show()
+        }
+    }
     private fun enableBluetooth() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+            if (!bluetoothManager.isBluetoothSupportedAndEnabled()) {
+                enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            }
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+                REQUEST_ENABLE_BLUETOOTH
+            )
+        }
+    }
+    /*FUNÇÂO DEFINIDA ANTERIORMENTE COM ERRO DE CHECK E CHAMDA OBSOLETA
+    private fun enableBluetooth() {
+
+
         if (!bluetoothManager.isBluetoothSupportedAndEnabled()) {
             val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
             startActivityForResult(enableBtIntent, REQUEST_ENABLE_BLUETOOTH)
         }
-    }
+    }*/
+
+
+
 
     // Inicia a descoberta de dispositivos
-    private fun startDiscovery() {
+    /*private fun startDiscovery() {
         deviceList.clear()
         deviceAdapter.notifyDataSetChanged()
         bluetoothManager.getPairedDevices()?.forEach { device ->
             deviceList.add("${device.name}\n${device.address}")
         }
+        deviceAdapter.notifyDataSetChanged()
+        bluetoothManager.startDiscovery()
+    }*/
+    private val discoveredDevices = mutableSetOf<String>()
+
+    private fun startDiscovery() {
+        deviceList.clear()
+        discoveredDevices.clear()
         deviceAdapter.notifyDataSetChanged()
         bluetoothManager.startDiscovery()
     }
@@ -128,18 +165,36 @@ class MainActivity : AppCompatActivity(), BluetoothPrinterManager.PrinterCallbac
     }
 
     override fun onDeviceDiscovered(device: BluetoothDevice) {
-        deviceList.add("${device.name}\n${device.address}")
-        deviceAdapter.notifyDataSetChanged()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+            deviceList.add("${device.name}\n${device.address}")
+            deviceAdapter.notifyDataSetChanged()
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+                REQUEST_ENABLE_BLUETOOTH
+            )
+        }
+
     }
 
     override fun onConnectionStateChanged(connected: Boolean, device: BluetoothDevice?) {
-        runOnUiThread {
-            Toast.makeText(
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+            runOnUiThread {
+                Toast.makeText(
+                    this,
+                    if (connected) "Conectado a ${device?.name}" else "Desconectado",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        } else {
+            ActivityCompat.requestPermissions(
                 this,
-                if (connected) "Conectado a ${device?.name}" else "Desconectado",
-                Toast.LENGTH_SHORT
-            ).show()
+                arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+                REQUEST_ENABLE_BLUETOOTH
+            )
         }
+
     }
 
     override fun onPrintSuccess() {

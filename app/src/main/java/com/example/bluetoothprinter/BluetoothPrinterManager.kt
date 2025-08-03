@@ -43,6 +43,17 @@ class BluetoothPrinterManager(
         fun onPrintSuccess()
         fun onError(message: String)
     }
+    private val discoveredDevicesMap = mutableMapOf<String, BluetoothDevice>()
+    private val pairingRequestReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BluetoothDevice.ACTION_PAIRING_REQUEST) {
+                val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                val pin = "0000" // Altere conforme o PIN padrão da sua impressora
+                device?.setPin(pin.toByteArray())
+                abortBroadcast()
+            }
+        }
+    }
 
     // Verifica se o Bluetooth é suportado e está ativado
    /* fun isBluetoothSupportedAndEnabled(): Boolean {
@@ -51,19 +62,11 @@ class BluetoothPrinterManager(
             return false
         }
         if (!bluetoothAdapter.isEnabled) {
-            callback.onBluetoothStateChanged(false)
-            return false
+            callback.onBluetoothStateChanged(false)          return false
         }
         return true
     }*/
-    fun isBluetoothSupportedAndEnabled(): Boolean {
-        if (bluetoothAdapter?.isEnabled != true) {
-            callback.onError("Dispositivo não suporta Bluetooth ou está desativado")
-            callback.onBluetoothStateChanged(false)
-            return false
-        }
-        return true
-    }
+
 
 
     // Verifica permissões necessárias
@@ -77,10 +80,17 @@ class BluetoothPrinterManager(
                     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         }
     }
+    fun isBluetoothSupportedAndEnabled(): Boolean {
+        if (bluetoothAdapter?.isEnabled != true) {
+            callback.onError("Dispositivo Bluetooth está desativado")
+            callback.onBluetoothStateChanged(false)
+            return false
+        }
+        return true
+    }
 
     // Inicia a descoberta de dispositivos
-    @SuppressLint("MissingPermission")
-    fun startDiscovery() {
+    /*fun startDiscovery() {
         if (!isBluetoothSupportedAndEnabled() || !hasBluetoothPermissions()) {
             callback.onError("Bluetooth desativado ou permissões ausentes")
             return
@@ -116,14 +126,51 @@ class BluetoothPrinterManager(
                     }
                 }
             }
+        }*/
+    @SuppressLint("MissingPermission")
+    fun startDiscovery() {
+        if (!isBluetoothSupportedAndEnabled() || !hasBluetoothPermissions()) {
+            callback.onError("Bluetooth desativado ou permissões ausentes")
+            return
         }
+
+        discoveredDevicesMap.clear()
+        bluetoothAdapter?.cancelDiscovery()
+
+        discoveryReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    BluetoothDevice.ACTION_FOUND -> {
+                        val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                        }
+                        device?.let {
+                            val address = it.address
+                            if (!discoveredDevicesMap.containsKey(address)) {
+                                discoveredDevicesMap[address] = it
+                                callback.onDeviceDiscovered(it)
+                            }
+                        }
+                    }
+                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                        callback.onError("Descoberta de dispositivos finalizada")
+                    }
+                }
+            }
+        }
+
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
         }
-        context.registerReceiver(discoveryReceiver, filter)
 
+        context.registerReceiver(discoveryReceiver, filter)
         bluetoothAdapter?.startDiscovery()
+
+
     }
 
     // Cancela a descoberta
@@ -132,9 +179,44 @@ class BluetoothPrinterManager(
         discoveryReceiver?.let { context.unregisterReceiver(it) }
         bluetoothAdapter?.cancelDiscovery()
     }
+    //descobrir dispositivos descobertos
+    fun getDiscoveredDevice(address: String): BluetoothDevice? {
+        return discoveredDevicesMap[address]
+    }
+
 
     // Conecta a um dispositivo pareado
     @SuppressLint("MissingPermission")
+    fun connectToDevice(device: BluetoothDevice) {
+        if (!isBluetoothSupportedAndEnabled() || !hasBluetoothPermissions()) {
+            callback.onError("Bluetooth desativado ou permissões ausentes")
+            return
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                bluetoothAdapter?.cancelDiscovery()
+
+                val filter = IntentFilter(BluetoothDevice.ACTION_PAIRING_REQUEST)
+                filter.priority = IntentFilter.SYSTEM_HIGH_PRIORITY
+                context.registerReceiver(pairingRequestReceiver, filter)
+
+                if (device.bondState == BluetoothDevice.BOND_NONE) {
+                    device.createBond() // Inicia pareamento (dispara o Broadcast do PIN)
+                }
+
+                bluetoothSocket = device.createRfcommSocketToServiceRecord(uuid)
+                bluetoothSocket?.connect()
+                outputStream = bluetoothSocket?.outputStream
+                callback.onConnectionStateChanged(true, device)
+            } catch (e: IOException) {
+                callback.onError("Falha na conexão: ${e.message}")
+                closeConnection()
+            }
+        }
+    }
+
+    /*Função anterior grok
     fun connectToDevice(device: BluetoothDevice) {
         if (!isBluetoothSupportedAndEnabled() || !hasBluetoothPermissions()) {
             callback.onError("Bluetooth desativado ou permissões ausentes")
@@ -149,11 +231,12 @@ class BluetoothPrinterManager(
                 outputStream = bluetoothSocket?.outputStream
                 callback.onConnectionStateChanged(true, device)
             } catch (e: IOException) {
-                callback.onError("Falha na conexão: ${e.message}")
+                callback.onError("Falha na conexão ")
+                Log.d("BluetoothPrinter", "erro discov")
                 closeConnection()
             }
         }
-    }
+    }*/
 
     // Imprime uma etiqueta com texto e código de barras
     @SuppressLint("MissingPermission")
@@ -265,6 +348,11 @@ class BluetoothPrinterManager(
             callback.onConnectionStateChanged(false, null)
         } catch (e: IOException) {
             callback.onError("Erro ao fechar conexão: ${e.message}")
+        }
+        try {
+            context.unregisterReceiver(pairingRequestReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Receiver já não registrado
         }
     }
 
